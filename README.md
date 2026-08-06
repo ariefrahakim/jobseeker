@@ -3,7 +3,7 @@
 A job search agent built around one specific profile — a Lead QA Engineer / SDET
 based in Jakarta — instead of around a keyword box.
 
-It sweeps 11 job sources, normalises everything into one shape, scores each
+It sweeps 16 job sources, normalises everything into one shape, scores each
 posting against that profile, enforces the compensation rules that actually
 matter, and hands back a ranked shortlist with a dashboard.
 
@@ -51,12 +51,13 @@ playwright install chromium   # for the LinkedIn / JobStreet / Glints sources
 ```
 $ python main.py search
 
-  sources    : remoteok, remotive, jobicy, himalayas, arbeitnow,
-               weworkremotely, greenhouse, lever, linkedin, jobstreet, glints
-  scraped    : 201 postings (193 unique)
-  matched    : 16 above threshold
-  new to you : 16
-  duration   : 39.8s
+  sources    : remoteok, remotive, jobicy, himalayas, arbeitnow, weworkremotely,
+               greenhouse, lever, ashby, smartrecruiters, workingnomads,
+               hackernews, kalibrr, linkedin, jobstreet, glints
+  scraped    : 991 postings (894 unique)
+  matched    : 36 above threshold
+  new to you : 36
+  duration   : 248.1s
 
 ------------------------------------------------------------------------------
   Europe — no salary floor  (6)
@@ -92,9 +93,19 @@ It answers the four questions you actually have each morning:
 - **Salary not stated** — Indonesian roles you need to ask about before applying
 - **Applied / interviewing** — what is already in flight
 
-Below the numbers is one sortable, searchable table. Click any column heading to
-sort; filter by region, status, work setup or minimum score; search across
-titles, companies and matched skills.
+Below the numbers is one paginated, sortable, searchable table:
+
+- **Sorted by newest scraped first** by default — the point of a daily run is
+  seeing what just arrived. A *Found* column shows when the agent picked it up,
+  next to *Posted* (what the board claimed).
+- **Hover or tab onto any score** for a tooltip breaking it into its six
+  dimensions, each with a bar and the weight it carries. Without the weight the
+  numbers mislead: a perfect *Industry* score moves the total by 5, not 100.
+- **Pagination** with 10/25/50/100/All per page, a contiguous `1–10 of 36`
+  range, and ← / → arrow keys. Changing a filter snaps back to page 1 rather
+  than stranding you on a page that no longer exists.
+- **Filters** for region, status, work setup and minimum score (defaults to
+  *Any score*), plus search across titles, companies and matched skills.
 
 ---
 
@@ -156,6 +167,11 @@ should use the worst case the posting commits to.
 | WeWorkRemotely | RSS | Two engineering feeds |
 | Greenhouse | ATS | 16 named company boards — the highest-signal source here |
 | Lever | ATS | Spotify, Binance |
+| Ashby | ATS | 15 boards Greenhouse and Lever do not cover |
+| SmartRecruiters | ATS | Grab, Wise, DeliveryHero, BoschGroup |
+| WorkingNomads | JSON | Remote board with little RemoteOK overlap |
+| Hacker News | JSON | The monthly *Who is hiring* thread — indexed by no board |
+| **Kalibrr** | JSON | Indonesian board with **structured IDR salary fields** |
 | LinkedIn | Browser | Guest search needs no account; login only as a fallback |
 | JobStreet ID | Browser | Its JSON endpoint sits behind Cloudflare; login enables the fallback |
 | Glints | Browser | The one Indonesian board that publishes monthly IDR on the card |
@@ -249,7 +265,7 @@ scoring:
 ## Tests
 
 ```bash
-python -m pytest -q      # 101 tests
+python -m pytest -q      # 109 tests
 ```
 
 Coverage is concentrated where mistakes are expensive: salary parsing and floor
@@ -263,6 +279,15 @@ Several of these tests exist because they caught real bugs during development:
 - `qa` inside "Qatar" was scoring a Business Analyst role as testing-adjacent.
 - "senior" alone gave a Graphic Designer role 50% title overlap with
   "Senior Test Engineer".
+- Kalibrr's `base_salary` is a bare number, not the nested object the code
+  assumed — it crashed the whole source with `'float' object has no attribute
+  'get'`.
+- The HN scraper was pulling the sibling *"Who wants to be hired"* thread, so
+  candidates advertising themselves were being ranked as vacancies.
+
+The dashboard was also driven through a browser (32 interactive checks), which
+turned up a `TypeError: e.target.matches is not a function` — a keydown with
+nothing focused targets `document`, which has no `.matches()`.
 
 ---
 

@@ -177,7 +177,8 @@ def cmd_dashboard(args: argparse.Namespace) -> int:
         print("Nothing to show yet — run `python main.py search` first.")
         return 1
 
-    target = dashboard.build(store, path=args.out, limit=args.limit)
+    target = dashboard.build(store, path=args.out, limit=args.limit,
+                             per_page=args.per_page)
     print(f"\nDashboard: {target}")
     print("Open it in a browser, or send the file to your phone.\n")
 
@@ -279,6 +280,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_dash = sub.add_parser("dashboard", help="build a single-file HTML dashboard")
     p_dash.add_argument("--out", help="where to write it (default output/dashboard.html)")
     p_dash.add_argument("--limit", type=int, default=500, help="jobs to include")
+    p_dash.add_argument("--per-page", type=int, default=25,
+                        help="rows per page in the dashboard (default 25)")
     p_dash.add_argument("--open", action="store_true", dest="open_it",
                         help="open it in your browser when done")
     p_dash.set_defaults(func=cmd_dashboard)

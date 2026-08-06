@@ -49,13 +49,48 @@ class Scraper(ABC):
 
     # ------------------------------------------------------------- HTTP utils
     def get(self, url: str, **kwargs) -> requests.Response:
+        """GET with a politeness delay and backoff on rate limits.
+
+        Boards that rank results (LinkedIn especially) will 429 partway through a
+        wide sweep. Honouring `Retry-After` and backing off recovers the rest of
+        the sweep instead of losing every page after the first refusal — and it
+        is the behaviour the server is explicitly asking for.
+        """
         timeout = kwargs.pop("timeout", self.config.get("timeout_seconds", 30))
         delay = float(self.config.get("delay_seconds", 1.0))
-        response = self.session.get(url, timeout=timeout, **kwargs)
+        attempts = int(self.config.get("retry_attempts", 3))
+
+        for attempt in range(attempts):
+            response = self.session.get(url, timeout=timeout, **kwargs)
+
+            if response.status_code in (429, 503) and attempt < attempts - 1:
+                wait = self._retry_after(response, attempt)
+                log.info(
+                    "%s: %s from %s — waiting %.0fs (attempt %d/%d)",
+                    self.name, response.status_code, url.split("?")[0], wait,
+                    attempt + 1, attempts,
+                )
+                time.sleep(wait)
+                continue
+
+            response.raise_for_status()
+            if delay:
+                time.sleep(delay)
+            return response
+
+        # Loop only exits via return or continue; the last attempt raises above.
         response.raise_for_status()
-        if delay:
-            time.sleep(delay)
         return response
+
+    @staticmethod
+    def _retry_after(response: requests.Response, attempt: int) -> float:
+        """Seconds to wait: the server's `Retry-After` if sane, else backoff."""
+        header = response.headers.get("Retry-After", "")
+        if header.isdigit():
+            # Cap it — some servers answer with an hour, which is not a wait
+            # worth making inside a job-search run.
+            return min(float(header), 60.0)
+        return min(2.0 * (2 ** attempt), 30.0)
 
     def get_json(self, url: str, **kwargs) -> Any:
         response = self.get(url, **kwargs)

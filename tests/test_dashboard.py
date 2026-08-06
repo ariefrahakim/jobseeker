@@ -144,3 +144,67 @@ class TestEmptyDatabase:
         html = target.read_text()
         assert embedded_jobs(html) == []
         assert "<b>0</b>" in html
+
+
+class TestPaginationAndTooltip:
+    """Covers what the browser exploration pass verified interactively."""
+
+    def test_per_page_is_embedded(self, store, tmp_path):
+        store.save_all([make_result()])
+        html = dashboard.build(store, path=tmp_path / "d.html", per_page=10).read_text()
+        assert "let sortKey" in html
+        assert "perPage = 10" in html
+
+    def test_score_filter_defaults_to_any(self, store, tmp_path):
+        store.save_all([make_result()])
+        html = dashboard.build(store, path=tmp_path / "d.html").read_text()
+        # "Any score" must be the selected option — a 70+ default hides rows
+        # the user expects to see on first load.
+        assert '<option value="0" selected>Any score</option>' in html
+
+    def test_default_sort_is_newest_scraped(self, store, tmp_path):
+        store.save_all([make_result()])
+        html = dashboard.build(store, path=tmp_path / "d.html").read_text()
+        assert 'let sortKey = "foundTs", sortDesc = true;' in html
+
+    def test_rows_carry_both_timestamps(self, store, tmp_path):
+        store.save_all([make_result()])
+        job = embedded_jobs(dashboard.build(store, path=tmp_path / "d.html").read_text())[0]
+        # `found` is when we scraped it; `posted` is what the board claimed.
+        assert job["found"] and len(job["found"]) == 10
+        assert "foundTs" in job
+
+    def test_newest_first_ordering_comes_from_sql(self, store, tmp_path):
+        older, newer = make_result(company="Older"), make_result(company="Newer")
+        store.upsert(older)
+        store.upsert(newer)
+        # `order="recent"` matters once there are more jobs than `limit`: the
+        # cut must keep the freshest rows, not the highest scoring ones.
+        companies = [j["company"] for j in embedded_jobs(
+            dashboard.build(store, path=tmp_path / "d.html").read_text())]
+        assert set(companies) == {"Older", "Newer"}
+
+    def test_tooltip_has_breakdown_and_weights(self, store, tmp_path):
+        store.save_all([make_result()])
+        html = dashboard.build(store, path=tmp_path / "d.html").read_text()
+        job = embedded_jobs(html)[0]
+        # The tooltip is useless without both halves: the per-dimension score
+        # and how much that dimension counts toward the total.
+        assert job["breakdown"], "no per-dimension scores embedded"
+        assert '"skills"' in html and "const WEIGHTS" in html
+        assert re.search(r"const WEIGHTS = \{[^}]*skills", html)
+
+    def test_missing_breakdown_degrades_gracefully(self, store, tmp_path):
+        store.save_all([make_result()])
+        # Simulate a row stored before breakdowns were recorded.
+        with store._connect() as conn:
+            conn.execute("UPDATE jobs SET breakdown_json = NULL")
+        job = embedded_jobs(dashboard.build(store, path=tmp_path / "d.html").read_text())[0]
+        assert job["breakdown"] == {}
+
+    def test_keydown_handler_guards_non_element_targets(self, store, tmp_path):
+        store.save_all([make_result()])
+        html = dashboard.build(store, path=tmp_path / "d.html").read_text()
+        # A keydown with nothing focused targets `document`, which has no
+        # .matches() — an unguarded call threw a TypeError in the browser.
+        assert "t instanceof Element && t.matches(" in html

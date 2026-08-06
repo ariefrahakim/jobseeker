@@ -19,6 +19,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .profile import Profile
 from .storage import Store
 
 OUTPUT_DIR = Path(__file__).resolve().parent.parent / "output"
@@ -39,18 +40,43 @@ _REGION_LABEL = {
 }
 
 
-def build(store: Store, path: str | Path | None = None, limit: int = 500) -> Path:
+def _breakdown(raw: str | None) -> dict[str, float]:
+    """Per-dimension scores, as stored by the matcher. `{}` if unavailable."""
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return {}
+    return {k: v for k, v in parsed.items() if k != "total"} if isinstance(parsed, dict) else {}
+
+
+def build(
+    store: Store,
+    path: str | Path | None = None,
+    limit: int = 500,
+    per_page: int = 25,
+    profile: Profile | None = None,
+) -> Path:
     """Render the dashboard from everything in the database."""
     target = Path(path) if path else OUTPUT_DIR / "dashboard.html"
     target.parent.mkdir(parents=True, exist_ok=True)
 
-    rows = store.list_jobs(limit=limit)
+    rows = store.list_jobs(limit=limit, order="recent")
     stats = store.stats()
+
+    # Weights come from the profile so the tooltip explains the *live* scoring
+    # rules rather than a copy that silently drifts out of date.
+    try:
+        weights = (profile or Profile.load()).scoring.get("weights", {})
+    except Exception:  # a missing or broken profile must not break the page
+        weights = {}
 
     jobs = [
         {
             "id": r["fingerprint"],
             "score": round(r["score"] or 0, 1),
+            "breakdown": _breakdown(r["breakdown_json"]),
             "title": r["title"],
             "company": r["company"],
             "location": r["location_raw"] or "—",
@@ -67,6 +93,9 @@ def build(store: Store, path: str | Path | None = None, limit: int = 500) -> Pat
             "fit": r["llm_fit"] or "",
             "url": r["url"],
             "posted": (r["posted_at"] or "")[:10],
+            "found": (r["first_seen_at"] or "")[:10],
+            # Numeric key so sorting is chronological, not lexical.
+            "foundTs": r["first_seen_at"] or "",
         }
         for r in rows
     ]
@@ -94,7 +123,11 @@ def build(store: Store, path: str | Path | None = None, limit: int = 500) -> Pat
             ready=ready,
             needs_check=needs_check,
             applied=applied,
+            per_page=per_page,
             data=_json_for_script(jobs),
+            weights=_json_for_script(
+                {k: float(v) for k, v in weights.items()}
+            ),
         ),
         encoding="utf-8",
     )
@@ -170,7 +203,35 @@ _TEMPLATE = """<!doctype html>
   th:hover {{ color:var(--fg) }}
   tbody tr:last-child td {{ border-bottom:none }}
   tbody tr:hover {{ background:color-mix(in srgb, var(--card) 92%, var(--fg)) }}
-  .score {{ font-weight:700; font-variant-numeric:tabular-nums; color:var(--accent) }}
+  .score {{ font-weight:700; font-variant-numeric:tabular-nums; color:var(--accent);
+    cursor:help; border-bottom:1px dotted currentColor }}
+  .score:focus-visible {{ outline:2px solid var(--accent); outline-offset:2px }}
+
+  /* Score tooltip. Lives on <body>, positioned by JS — an absolutely
+     positioned tooltip inside .wrap would be clipped by its overflow-x. */
+  #tip {{ position:fixed; z-index:50; max-width:20rem; padding:.7rem .8rem;
+    background:var(--card); color:var(--fg); border:1px solid var(--line);
+    border-radius:.5rem; box-shadow:0 6px 24px rgba(0,0,0,.18);
+    font-size:.8rem; pointer-events:none; opacity:0; transition:opacity .1s }}
+  #tip[data-show] {{ opacity:1 }}
+  #tip h4 {{ margin:0 0 .4rem; font-size:.8rem }}
+  #tip table {{ min-width:0; width:100%; border-collapse:collapse }}
+  #tip td {{ border:none; padding:.12rem 0; font-size:.75rem }}
+  #tip td:first-child {{ padding-right:.5rem; white-space:nowrap }}
+  #tip td:last-child {{ text-align:right; font-variant-numeric:tabular-nums;
+    color:var(--muted) }}
+  #tip .bar {{ display:block; height:4px; border-radius:2px; background:var(--line) }}
+  #tip .bar i {{ display:block; height:100%; border-radius:2px; background:var(--accent) }}
+  #tip .foot {{ margin:.5rem 0 0; color:var(--muted); font-size:.7rem; line-height:1.4 }}
+
+  /* Pagination */
+  .pager {{ display:flex; align-items:center; gap:.5rem; flex-wrap:wrap;
+    margin-top:.75rem; font-size:.85rem; color:var(--muted) }}
+  .pager button {{ font:inherit; padding:.35rem .7rem; border:1px solid var(--line);
+    border-radius:.4rem; background:var(--card); color:var(--fg); cursor:pointer }}
+  .pager button:hover:not(:disabled) {{ border-color:var(--accent); color:var(--accent) }}
+  .pager button:disabled {{ opacity:.4; cursor:default }}
+  .pager .spacer {{ flex:1 }}
   a {{ color:var(--fg) }}
   a:hover {{ color:var(--accent) }}
   .co {{ color:var(--muted); font-size:.85rem }}
@@ -190,7 +251,8 @@ _TEMPLATE = """<!doctype html>
 <body><main>
 
 <h1>Job dashboard</h1>
-<p class="sub">Updated {generated} · click a column heading to sort</p>
+<p class="sub">Updated {generated} · click a column heading to sort ·
+  hover a score to see how it was calculated</p>
 
 <div class="cards">
   <div class="card hi"><b>{ready}</b><span>Ready to apply<br>(70+, salary clear)</span></div>
@@ -211,9 +273,9 @@ _TEMPLATE = """<!doctype html>
     <option value="onsite">Onsite</option>
   </select>
   <select id="min">
-    <option value="0">Any score</option>
+    <option value="0" selected>Any score</option>
     <option value="60">60+</option>
-    <option value="70" selected>70+</option>
+    <option value="70">70+</option>
     <option value="80">80+</option>
   </select>
 </div>
@@ -226,12 +288,32 @@ _TEMPLATE = """<!doctype html>
       <th data-k="region">Where</th>
       <th data-k="salaryIdr">Salary</th>
       <th data-k="status">Status</th>
+      <th data-k="foundTs">Found</th>
       <th data-k="posted">Posted</th>
     </tr></thead>
     <tbody id="rows"></tbody>
   </table>
   <div class="empty" id="empty" hidden>Nothing matches these filters.</div>
 </div>
+
+<div class="pager">
+  <span id="range">—</span>
+  <span class="spacer"></span>
+  <label>Per page
+    <select id="per">
+      <option value="10">10</option>
+      <option value="25">25</option>
+      <option value="50">50</option>
+      <option value="100">100</option>
+      <option value="0">All</option>
+    </select>
+  </label>
+  <button id="prev" type="button">‹ Prev</button>
+  <span id="pageinfo">1 / 1</span>
+  <button id="next" type="button">Next ›</button>
+</div>
+
+<div id="tip" role="tooltip"></div>
 
 <footer>
   Mark progress from the terminal: <code>python main.py status &lt;id&gt; applied</code> ·
@@ -241,8 +323,19 @@ _TEMPLATE = """<!doctype html>
 
 <script>
 const JOBS = {data};
+const WEIGHTS = {weights};
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => (
   {{ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }}[c]));
+
+// Plain-language names for the scoring dimensions, in the order they are shown.
+const DIMENSIONS = [
+  ["skills",      "Skills matched"],
+  ["title",       "Title match"],
+  ["arrangement", "Work setup"],
+  ["seniority",   "Seniority"],
+  ["domain",      "Industry"],
+  ["freshness",   "How recent"],
+];
 
 // Populate the region and status dropdowns from the data itself, so they never
 // list a filter that would return nothing.
@@ -252,7 +345,11 @@ for (const [id, key] of [["region","region"], ["status","status"]]) {{
     seen.map(v => `<option value="${{esc(v)}}">${{esc(v)}}</option>`).join(""));
 }}
 
-let sortKey = "score", sortDesc = true;
+// Newest-scraped first: the point of a daily run is seeing what just
+// arrived, so that is the default view rather than the highest score.
+let sortKey = "foundTs", sortDesc = true;
+let page = 1, perPage = {per_page};
+let shown = [];
 
 function pill(job) {{
   const cls = job.salaryVerdict === "pass" ? "ok"
@@ -260,6 +357,50 @@ function pill(job) {{
   return `<span class="pill ${{cls}}">${{esc(job.salaryLabel)}}</span>`;
 }}
 
+/* ---------------------------------------------------------------- tooltip --
+   Explains a score by showing each dimension's own 0-100 result next to how
+   much it counts toward the total. Without the weight the numbers are
+   misleading: a perfect "Industry" score moves the total by 5, not by 100. */
+const tip = document.getElementById("tip");
+
+function tooltipHtml(job) {{
+  const b = job.breakdown || {{}};
+  if (!Object.keys(b).length) {{
+    return `<h4>Score ${{job.score.toFixed(1)}} / 100</h4>
+      <p class="foot">No breakdown was stored for this job. Re-run
+      <code>search</code> to record one.</p>`;
+  }}
+  const totalWeight = Object.values(WEIGHTS).reduce((a, c) => a + c, 0) || 1;
+  const rows = DIMENSIONS.filter(([k]) => k in b).map(([k, label]) => {{
+    const score = b[k] ?? 0;
+    const share = ((WEIGHTS[k] ?? 0) / totalWeight * 100).toFixed(0);
+    return `<tr>
+      <td>${{esc(label)}}<span class="bar"><i style="width:${{Math.max(0, Math.min(100, score))}}%"></i></span></td>
+      <td>${{score.toFixed(0)}}<br><small>${{share}}% weight</small></td>
+    </tr>`;
+  }}).join("");
+  return `<h4>Score ${{job.score.toFixed(1)}} / 100</h4>
+    <table>${{rows}}</table>
+    <p class="foot">Each dimension is scored 0-100, then blended by the weights
+    above. Anything under 55 is not reported at all.</p>`;
+}}
+
+function showTip(el, job) {{
+  tip.innerHTML = tooltipHtml(job);
+  tip.setAttribute("data-show", "");
+  // Measure after filling, then keep the box inside the viewport. Flipping
+  // above the row is what stops it being cut off at the bottom of the page.
+  const r = el.getBoundingClientRect(), t = tip.getBoundingClientRect();
+  let left = Math.min(r.left, window.innerWidth - t.width - 12);
+  let top = r.bottom + 8;
+  if (top + t.height > window.innerHeight - 8) top = r.top - t.height - 8;
+  tip.style.left = `${{Math.max(8, left)}}px`;
+  tip.style.top = `${{Math.max(8, top)}}px`;
+}}
+
+function hideTip() {{ tip.removeAttribute("data-show"); }}
+
+/* -------------------------------------------------------------- rendering -- */
 function render() {{
   const q = document.getElementById("q").value.toLowerCase().trim();
   const region = document.getElementById("region").value;
@@ -267,7 +408,7 @@ function render() {{
   const setup = document.getElementById("setup").value;
   const min = Number(document.getElementById("min").value);
 
-  const shown = JOBS.filter(j =>
+  shown = JOBS.filter(j =>
     j.score >= min &&
     (!region || j.region === region) &&
     (!status || j.status === status) &&
@@ -281,9 +422,17 @@ function render() {{
     return sortDesc ? -cmp : cmp;
   }});
 
-  document.getElementById("rows").innerHTML = shown.map(j => `
+  // Clamp the page: filtering down to fewer results must not leave you
+  // stranded on a page that no longer exists.
+  const size = perPage || shown.length || 1;
+  const pages = Math.max(1, Math.ceil(shown.length / size));
+  page = Math.min(Math.max(1, page), pages);
+  const start = (page - 1) * size;
+  const slice = shown.slice(start, start + size);
+
+  document.getElementById("rows").innerHTML = slice.map(j => `
     <tr>
-      <td class="score">${{j.score.toFixed(0)}}</td>
+      <td class="score" tabindex="0" data-id="${{esc(j.id)}}">${{j.score.toFixed(0)}}</td>
       <td>
         <a href="${{esc(j.url)}}" target="_blank" rel="noopener">${{esc(j.title)}}</a>
         ${{j.status === "new" ? '<span class="new">NEW</span>' : ""}}
@@ -296,10 +445,32 @@ function render() {{
       <td>${{esc(j.salary)}}<div>${{pill(j)}}</div>
         ${{j.salaryIdr ? `<div class="co">≈ IDR ${{Math.round(j.salaryIdr).toLocaleString()}}/mo</div>` : ""}}</td>
       <td>${{esc(j.status)}}</td>
+      <td class="co">${{esc(j.found || "—")}}</td>
       <td class="co">${{esc(j.posted || "—")}}</td>
     </tr>`).join("");
 
   document.getElementById("empty").hidden = shown.length > 0;
+
+  // Pager state
+  const first = shown.length ? start + 1 : 0;
+  document.getElementById("range").textContent =
+    `${{first}}–${{start + slice.length}} of ${{shown.length}}`;
+  document.getElementById("pageinfo").textContent = `${{page}} / ${{pages}}`;
+  document.getElementById("prev").disabled = page <= 1;
+  document.getElementById("next").disabled = page >= pages;
+
+  hideTip();
+
+  // Wire the tooltip to the rows we just drew. Mouse and keyboard both, so a
+  // score is inspectable without a pointer.
+  document.querySelectorAll("#rows .score").forEach(cell => {{
+    const job = slice.find(j => j.id === cell.dataset.id);
+    if (!job) return;
+    cell.onmouseenter = () => showTip(cell, job);
+    cell.onfocus = () => showTip(cell, job);
+    cell.onmouseleave = hideTip;
+    cell.onblur = hideTip;
+  }});
 }}
 
 document.querySelectorAll("th[data-k]").forEach(th => th.onclick = () => {{
@@ -307,11 +478,38 @@ document.querySelectorAll("th[data-k]").forEach(th => th.onclick = () => {{
   // Same column toggles direction; a new column starts descending, which is
   // what you want for every column here except the text ones.
   if (key === sortKey) sortDesc = !sortDesc; else {{ sortKey = key; sortDesc = true; }}
+  page = 1;
   render();
 }});
-document.querySelectorAll("input, select").forEach(el => {{
-  el.oninput = render; el.onchange = render;
+
+// Any filter change resets to page 1 — staying on page 4 of a freshly
+// narrowed list looks like an empty result.
+document.querySelectorAll("#q, #region, #status, #setup, #min").forEach(el => {{
+  const reset = () => {{ page = 1; render(); }};
+  el.oninput = reset; el.onchange = reset;
 }});
+
+document.getElementById("per").onchange = e => {{
+  perPage = Number(e.target.value);
+  page = 1;
+  render();
+}};
+document.getElementById("prev").onclick = () => {{ page--; render(); window.scrollTo({{top:0}}); }};
+document.getElementById("next").onclick = () => {{ page++; render(); window.scrollTo({{top:0}}); }};
+
+// Left/right arrows page through the list when focus is not in a text field.
+document.addEventListener("keydown", e => {{
+  // `e.target` is not always an Element — a keydown with nothing focused
+  // targets the document itself, which has no .matches() and would throw.
+  const t = e.target;
+  if (t instanceof Element && t.matches("input, select, textarea")) return;
+  if (e.key === "ArrowLeft") document.getElementById("prev").click();
+  if (e.key === "ArrowRight") document.getElementById("next").click();
+}});
+
+window.addEventListener("scroll", hideTip, {{ passive: true }});
+
+document.getElementById("per").value = String(perPage);
 render();
 </script>
 </main></body></html>

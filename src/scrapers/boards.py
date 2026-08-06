@@ -90,9 +90,14 @@ class RemotiveScraper(Scraper):
         payload = self.get_json(url, params=params)
         entries = payload.get("jobs", []) if isinstance(payload, dict) else []
 
-        # The QA category is narrow; sweep software-dev too and filter by title.
-        if self.config.get("category"):
-            extra = self.get_json(url, params={"search": "qa automation", "limit": 100})
+        # The QA category is narrow, so sweep extra search terms as well. Each
+        # is one request; duplicates collapse later on fingerprint.
+        for term in self.config.get("searches", []):
+            try:
+                extra = self.get_json(url, params={"search": term, "limit": 100})
+            except Exception as exc:
+                log.warning("remotive search '%s' failed: %s", term, exc)
+                continue
             entries += extra.get("jobs", []) if isinstance(extra, dict) else []
 
         jobs: list[Job] = []

@@ -24,6 +24,14 @@ sources:
     url: https://remotive.com/api/remote-jobs
     category: qa
     max_results: 200
+    # The QA category alone is thin; each extra term is one more request and
+    # results are deduped by fingerprint anyway.
+    searches:
+      - qa automation
+      - sdet
+      - test engineer
+      - quality engineer
+      - automation engineer
 
   jobicy:
     enabled: true
@@ -40,14 +48,14 @@ sources:
     url: https://himalayas.app/jobs/api
     # The API returns 20 per call and the feed covers every discipline, so this
     # is paged through in 20s. Raise it to dig deeper, at the cost of time.
-    max_results: 400
+    max_results: 1000
 
   arbeitnow:
     enabled: true
     kind: api
     # Europe-heavy (DE/NL/rest of EU), includes visa-sponsorship flags.
     url: https://www.arbeitnow.com/api/job-board-api
-    max_pages: 3
+    max_pages: 8
 
   weworkremotely:
     enabled: true
@@ -55,6 +63,9 @@ sources:
     feeds:
       - https://weworkremotely.com/categories/remote-programming-jobs.rss
       - https://weworkremotely.com/categories/remote-devops-sysadmin-jobs.rss
+      - https://weworkremotely.com/categories/remote-back-end-programming-jobs.rss
+      - https://weworkremotely.com/categories/remote-front-end-programming-jobs.rss
+      - https://weworkremotely.com/categories/remote-full-stack-programming-jobs.rss
 
   # Company career pages via their ATS. Cheap, high signal, no rate limits.
   # Add any company you would actually join.
@@ -88,23 +99,92 @@ sources:
       - spotify
       - binance
 
+  # Ashby — a newer ATS, so it covers companies Greenhouse and Lever do not.
+  ashby:
+    enabled: true
+    kind: ats
+    boards:
+      - ramp
+      - linear
+      - vercel
+      - deel
+      - posthog
+      - clickhouse
+      - astronomer
+      - runway
+      - openai
+      - anthropic
+      - notion
+      - loom
+      - mux
+      - modal
+      - supabase
+
+  # SmartRecruiters slugs are not the company's brand name — `Bosch` and
+  # `Klarna` both return zero, while `BoschGroup` returns thousands. Find a
+  # working one at jobs.smartrecruiters.com/<slug> before adding it here.
+  smartrecruiters:
+    enabled: true
+    kind: ats
+    companies:
+      - Grab            # SEA, hires QA in Jakarta and Singapore
+      - Wise            # UK/EU fintech
+      - DeliveryHero    # Berlin, owns Foodpanda
+      - BoschGroup
+    queries: [qa, sdet, test automation, quality]
+
+  workingnomads:
+    enabled: true
+    kind: api
+
+  # The monthly "Ask HN: Who is hiring?" thread. No job board indexes these,
+  # so it is genuinely additive rather than more of the same postings.
+  hackernews:
+    enabled: true
+    kind: api
+    max_results: 100
+    queries:
+      - QA automation
+      - SDET
+      - test engineer
+      - quality engineering
+
+  # Kalibrr publishes structured min/max salary in IDR, which is exactly what
+  # the 30jt floor needs — most Indonesian listings state nothing at all.
+  kalibrr:
+    enabled: true
+    kind: api
+    page_size: 30
+    max_pages: 3
+    queries:
+      - qa automation
+      - sdet
+      - quality assurance
+      - test engineer
+
   # Browser-driven. Guest search runs with no account; the authenticated path
   # kicks in only when guest search comes back empty, and needs
   # LINKEDIN_EMAIL + LINKEDIN_PASSWORD (or EMAIL_LINKEDIN + PASSWORD_LINKEDIN).
   linkedin:
     enabled: true
     kind: browser
-    max_jobs_per_query: 25
+    max_jobs_per_query: 75
     headless: true
     # Geo IDs LinkedIn uses for its location filter.
     geos:
       indonesia: "102478259"
       singapore: "102454443"
       europe: "91000000"
+      netherlands: "102890719"
+      germany: "101282230"
+      united_kingdom: "101165590"
     queries:
       - QA Automation Lead
       - SDET
       - Senior QA Automation Engineer
+      - QA Engineering Manager
+      - Test Automation Engineer
+      - Quality Engineering Lead
 
   # Indonesia-local boards. HTML-scraped, so they break more often than the
   # JSON APIs above — treated as best-effort and never fatal.

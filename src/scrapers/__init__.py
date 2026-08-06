@@ -12,6 +12,13 @@ import logging
 from ..profile import Profile, SourceConfig
 from .ats import GreenhouseScraper, LeverScraper
 from .base import Scraper, ScraperError
+from .extra import (
+    AshbyScraper,
+    HackerNewsScraper,
+    KalibrrScraper,
+    SmartRecruitersScraper,
+    WorkingNomadsScraper,
+)
 from .boards import (
     ArbeitnowScraper,
     HimalayasScraper,
@@ -34,6 +41,11 @@ REGISTRY: dict[str, type[Scraper]] = {
     WeWorkRemotelyScraper.name: WeWorkRemotelyScraper,
     GreenhouseScraper.name: GreenhouseScraper,
     LeverScraper.name: LeverScraper,
+    AshbyScraper.name: AshbyScraper,
+    SmartRecruitersScraper.name: SmartRecruitersScraper,
+    WorkingNomadsScraper.name: WorkingNomadsScraper,
+    HackerNewsScraper.name: HackerNewsScraper,
+    KalibrrScraper.name: KalibrrScraper,
     JobStreetScraper.name: JobStreetScraper,
     GlintsScraper.name: GlintsScraper,
     LinkedInScraper.name: LinkedInScraper,

@@ -174,7 +174,19 @@ class Store:
         region: str | None = None,
         min_score: float | None = None,
         limit: int = 50,
+        order: str = "score",
     ) -> list[dict[str, Any]]:
+        """Read stored jobs.
+
+        `order` matters once you have more jobs than `limit`: "recent" returns
+        the most recently scraped, "score" the highest ranked. Ordering in SQL
+        rather than after the fact means the cut keeps the rows you asked for.
+        """
+        order_sql = {
+            "recent": "first_seen_at DESC, score DESC",
+            "score": "score DESC",
+        }.get(order, "score DESC")
+
         clauses, params = [], []
         if status:
             clauses.append("status = ?")
@@ -189,7 +201,7 @@ class Store:
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         with self._connect() as conn:
             rows = conn.execute(
-                f"SELECT * FROM jobs {where} ORDER BY score DESC LIMIT ?",
+                f"SELECT * FROM jobs {where} ORDER BY {order_sql} LIMIT ?",
                 (*params, limit),
             ).fetchall()
         return [dict(r) for r in rows]
