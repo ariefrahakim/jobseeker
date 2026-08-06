@@ -1,0 +1,130 @@
+# Which job boards to hit, and how hard.
+#
+# Every source is a public JSON API or RSS feed except `linkedin`, which drives
+# a real browser via Playwright and is opt-in (needs credentials + patience).
+
+defaults:
+  timeout_seconds: 30
+  max_pages: 3
+  # Politeness delay between requests to the same host.
+  delay_seconds: 1.5
+  user_agent: "jobseeker-agent/1.0 (+https://github.com/ariefrahakim/jobseeker)"
+
+sources:
+  remoteok:
+    enabled: true
+    kind: api
+    # Remote-only board, strong on engineering. Single JSON dump.
+    url: https://remoteok.com/api
+    max_results: 200
+
+  remotive:
+    enabled: true
+    kind: api
+    url: https://remotive.com/api/remote-jobs
+    category: qa
+    max_results: 200
+
+  jobicy:
+    enabled: true
+    kind: api
+    url: https://jobicy.com/api/v2/remote-jobs
+    # Valid geo slugs only — `asia` and `anywhere` are rejected with a 400.
+    geos: [europe, apac, singapore, germany, netherlands, uk]
+    industries: [engineering]
+    max_results: 100
+
+  himalayas:
+    enabled: true
+    kind: api
+    url: https://himalayas.app/jobs/api
+    # The API returns 20 per call and the feed covers every discipline, so this
+    # is paged through in 20s. Raise it to dig deeper, at the cost of time.
+    max_results: 400
+
+  arbeitnow:
+    enabled: true
+    kind: api
+    # Europe-heavy (DE/NL/rest of EU), includes visa-sponsorship flags.
+    url: https://www.arbeitnow.com/api/job-board-api
+    max_pages: 3
+
+  weworkremotely:
+    enabled: true
+    kind: rss
+    feeds:
+      - https://weworkremotely.com/categories/remote-programming-jobs.rss
+      - https://weworkremotely.com/categories/remote-devops-sysadmin-jobs.rss
+
+  # Company career pages via their ATS. Cheap, high signal, no rate limits.
+  # Add any company you would actually join.
+  # Every board below was verified live. A board that 404s is logged and
+  # skipped, so a stale entry costs you nothing but a line in the log.
+  greenhouse:
+    enabled: true
+    kind: ats
+    boards:
+      - gitlab          # remote-first, heavy QA/automation hiring
+      - grafanalabs
+      - elastic
+      - databricks
+      - airbnb
+      - dropbox
+      - stripe
+      - adyen           # EU fintech
+      - monzo           # UK fintech
+      - n26             # DE fintech
+      - sumup           # EU payments
+      - trustpilot
+      - contentful
+      - typeform
+      - xendit          # SEA fintech
+      - flip            # Indonesian fintech
+
+  lever:
+    enabled: true
+    kind: ats
+    boards:
+      - spotify
+      - binance
+
+  # Browser-driven. Guest search runs with no account; the authenticated path
+  # kicks in only when guest search comes back empty, and needs
+  # LINKEDIN_EMAIL + LINKEDIN_PASSWORD (or EMAIL_LINKEDIN + PASSWORD_LINKEDIN).
+  linkedin:
+    enabled: true
+    kind: browser
+    max_jobs_per_query: 25
+    headless: true
+    # Geo IDs LinkedIn uses for its location filter.
+    geos:
+      indonesia: "102478259"
+      singapore: "102454443"
+      europe: "91000000"
+    queries:
+      - QA Automation Lead
+      - SDET
+      - Senior QA Automation Engineer
+
+  # Indonesia-local boards. HTML-scraped, so they break more often than the
+  # JSON APIs above — treated as best-effort and never fatal.
+  # Search needs no login; JOBSTREET_EMAIL + JOBSTREET_PASSWORD (or the
+  # EMAIL_JOBSTREET + PASSWORD_JOBSTREET form) only enable the browser fallback.
+  jobstreet:
+    enabled: true
+    kind: html
+    headless: true
+    base_url: https://id.jobstreet.com
+    queries:
+      - qa-automation
+      - sdet
+      - quality-assurance-engineer
+
+  glints:
+    enabled: true
+    kind: html
+    base_url: https://glints.com
+    queries:
+      - QA Automation
+      - SDET
+      - Quality Assurance Engineer

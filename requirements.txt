@@ -1,0 +1,15 @@
+# Core — everything the pipeline needs to run.
+requests>=2.31.0
+PyYAML>=6.0.1
+python-dotenv>=1.0.0
+
+# Optional: Claude fit assessments, CV bullets and cover letters.
+# Drop this line and the pipeline still runs on the deterministic scorer.
+anthropic>=0.116.0
+
+# Optional: the LinkedIn and JobStreet browser fallbacks.
+# After installing, run: playwright install chromium
+playwright>=1.40.0
+
+# Development
+pytest>=8.0.0

@@ -1,0 +1,239 @@
+# Candidate profile — drives every scraper query and every match score.
+# Edit this file, not the code, when your situation changes.
+
+identity:
+  name: Arief Rahman Hakim
+  headline: Lead QA Engineer / SDET
+  email: ariefrahmanhakim0104@gmail.com
+  phone: "+6281292529514"
+  location: Jakarta, Indonesia
+  timezone: Asia/Jakarta
+  linkedin: https://www.linkedin.com/in/arief-rahman-hakim-test-engineer
+  portfolio: https://sage-smakager-639976.netlify.app/
+  years_experience: 9
+
+# Titles worth applying to. `primary` drives search queries; `accept` is the
+# wider net used when scoring a title we did not search for explicitly.
+titles:
+  primary:
+    - QA Automation Lead
+    - Lead QA Engineer
+    - SDET
+    - Software Development Engineer in Test
+    - Senior QA Automation Engineer
+    - QA Engineering Manager
+  accept:
+    - Test Automation Engineer
+    - Senior Test Engineer
+    - Quality Engineer
+    - Principal QA Engineer
+    - Staff QA Engineer
+    - Automation Architect
+    - Platform QA Engineer
+  # Anything matching these is dropped regardless of other signals.
+  reject:
+    - Manual Tester
+    - QA Intern
+    - Junior QA
+    - Game Tester
+    - Hardware Test Technician
+    - QC Inspector
+    - Data Entry
+
+# Skills are weighted. Weight is how much a hit moves the score, not how good
+# you are at it. `core` = your differentiators, `secondary` = supporting,
+# `adjacent` = nice-to-have signals that a role is modern.
+skills:
+  core:
+    cypress: 10
+    playwright: 10
+    selenium: 8
+    sdet: 9
+    test automation: 10
+    automation framework: 9
+    webdriverio: 7
+    wdio: 7
+    robot framework: 6
+    restassured: 8
+    api testing: 8
+    api automation: 8
+  secondary:
+    ci/cd: 7
+    azure devops: 6
+    jenkins: 5
+    bitbucket: 4
+    github actions: 5
+    jmeter: 6
+    k6: 6
+    performance testing: 7
+    load testing: 6
+    sql: 6
+    bigquery: 6
+    postman: 4
+    typescript: 5
+    javascript: 5
+    java: 6
+    python: 5
+    qase: 3
+    testrail: 3
+    jira: 2
+  adjacent:
+    ai agent: 6
+    llm: 5
+    genai: 5
+    kubernetes: 3
+    docker: 4
+    graphql: 3
+    contract testing: 4
+    pact: 4
+    observability: 3
+    gcp: 3
+    aws: 3
+    mobile automation: 4
+    appium: 4
+
+# Domains you have shipped in. Used as a soft positive signal.
+domains:
+  - fintech
+  - banking
+  - payments
+  - logistics
+  - media
+  - streaming
+  - saas
+  - construction data
+  - insurance
+
+# Seniority floor. Postings that read below this are penalised hard.
+seniority:
+  min_level: senior            # junior | mid | senior | lead | principal
+  prefer_leadership: true      # boost roles mentioning mentoring / team lead
+
+work_preference:
+  remote_first: true
+  # Score bonus applied per arrangement.
+  arrangement_bonus:
+    remote: 25
+    hybrid: 8
+    onsite: 0
+  # Onsite roles outside these countries are dropped (no relocation appetite
+  # for onsite work; remote is fine anywhere in an allowed region).
+  onsite_countries:
+    - Indonesia
+
+# Salary rules, per the brief:
+#   Indonesia  -> hard floor of IDR 30,000,000 / month
+#   Asia (non-ID) and Europe -> salary is not a filter at all
+salary_rules:
+  default_currency: IDR
+  regions:
+    indonesia:
+      countries: [Indonesia]
+      enforce: true
+      min_monthly:
+        amount: 30000000
+        currency: IDR
+      # What to do when a posting states no salary: keep it but mark it.
+      on_missing: flag        # flag | reject
+    asia:
+      countries:
+        - Singapore
+        - Malaysia
+        - Thailand
+        - Vietnam
+        - Philippines
+        - Japan
+        - South Korea
+        - Hong Kong
+        - Taiwan
+        - India
+        - United Arab Emirates
+        - Saudi Arabia
+        - Qatar
+        - Israel
+        - Turkey
+      enforce: false
+      on_missing: ignore
+    europe:
+      countries:
+        - United Kingdom
+        - Ireland
+        - Netherlands
+        - Germany
+        - France
+        - Spain
+        - Portugal
+        - Italy
+        - Switzerland
+        - Austria
+        - Belgium
+        - Luxembourg
+        - Denmark
+        - Sweden
+        - Norway
+        - Finland
+        - Iceland
+        - Estonia
+        - Latvia
+        - Lithuania
+        - Poland
+        - Czechia
+        - Slovakia
+        - Hungary
+        - Romania
+        - Bulgaria
+        - Croatia
+        - Slovenia
+        - Serbia
+        - Greece
+        - Cyprus
+        - Malta
+      enforce: false
+      on_missing: ignore
+  # Regions not listed above (e.g. US, LATAM) — kept only if fully remote and
+  # the posting does not restrict to a local timezone.
+  fallback:
+    enforce: false
+    on_missing: ignore
+    require_remote: true
+
+# Regions to actually search. Order matters for report grouping.
+target_regions:
+  - indonesia
+  - asia
+  - europe
+
+# Currency conversion to IDR for salary comparison. Refresh occasionally, or
+# set FX_API_URL in .env to fetch live rates.
+fx_to_idr:
+  IDR: 1
+  USD: 16300
+  EUR: 17600
+  GBP: 20600
+  SGD: 12100
+  MYR: 3600
+  AUD: 10600
+  JPY: 108
+  INR: 190
+  AED: 4400
+  CHF: 18400
+  SEK: 1540
+  PLN: 4100
+
+scoring:
+  # Final score is a weighted blend, then capped to 0-100.
+  weights:
+    title: 30
+    skills: 35
+    seniority: 10
+    arrangement: 15
+    domain: 5
+    freshness: 5
+  # Only report jobs at or above this score.
+  min_score: 55
+  # Title veto. Below this title score the posting is dropped outright, no
+  # matter how many of your tools it lists — that pattern is a generalist
+  # listing name-dropping everything, not a QA role.
+  min_title_score: 25
+  # Postings older than this are dropped.
+  max_age_days: 30

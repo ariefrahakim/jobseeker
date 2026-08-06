@@ -1,0 +1,68 @@
+name: Daily job search
+
+# Runs every morning at 07:00 Jakarta time (00:00 UTC) and publishes the
+# report as a build artifact. The database is cached between runs so the
+# "new since last run" count stays meaningful.
+on:
+  schedule:
+    - cron: "0 0 * * 1-5"   # weekday mornings
+  workflow_dispatch:         # or trigger it by hand
+
+jobs:
+  search:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: pip install -r requirements.txt
+
+      - name: Restore the job database
+        uses: actions/cache@v4
+        with:
+          path: data/jobs.db
+          # A rolling key: restore yesterday's DB, save today's.
+          key: jobs-db-${{ github.run_id }}
+          restore-keys: jobs-db-
+
+      - name: Run the search
+        # The API-only sources. Browser sources need credentials and a display,
+        # so they stay a local concern.
+        run: |
+          python main.py search \
+            --sources remoteok remotive jobicy himalayas arbeitnow \
+                      weworkremotely greenhouse lever \
+            --format markdown html json csv
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      - name: Build the dashboard
+        run: python main.py dashboard
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: job-report
+          path: |
+            output/*.md
+            output/*.html
+            output/*.json
+            output/*.csv
+          retention-days: 30
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python -m pytest -q
