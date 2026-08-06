@@ -91,6 +91,8 @@ def build(
             "skills": (r["matched_skills"] or "").split(", ") if r["matched_skills"] else [],
             "warnings": [w for w in (r["warnings"] or "").split(" | ") if w],
             "fit": r["llm_fit"] or "",
+            "agentNote": r["agent_note"] or "",
+            "draft": r["draft_path"] or "",
             "url": r["url"],
             "posted": (r["posted_at"] or "")[:10],
             "found": (r["first_seen_at"] or "")[:10],
@@ -112,6 +114,8 @@ def build(
         and j["salaryVerdict"] != "unknown"
     )
     needs_check = sum(1 for j in jobs if j["salaryVerdict"] == "unknown")
+    # What the agent has drafted and is waiting on you to send.
+    prepared = sum(1 for j in jobs if j["status"] == "prepared")
 
     generated = datetime.now(timezone.utc).strftime("%d %b %Y, %H:%M UTC")
 
@@ -123,6 +127,7 @@ def build(
             ready=ready,
             needs_check=needs_check,
             applied=applied,
+            prepared=prepared,
             per_page=per_page,
             data=_json_for_script(jobs),
             weights=_json_for_script(
@@ -243,6 +248,9 @@ _TEMPLATE = """<!doctype html>
   .new {{ background:var(--accent); color:var(--bg); font-size:.65rem;
     padding:.05rem .3rem; border-radius:.2rem; margin-left:.3rem }}
   .note {{ color:var(--muted); font-size:.8rem; margin-top:.2rem }}
+  .note.ready {{ color:var(--ok); background:var(--okbg); padding:.3rem .5rem;
+    border-radius:.3rem; margin-top:.4rem }}
+  .note code {{ font-size:.95em }}
   .empty {{ padding:2.5rem 1rem; text-align:center; color:var(--muted) }}
   footer {{ color:var(--muted); font-size:.8rem; margin-top:1.5rem }}
   code {{ background:var(--card); border:1px solid var(--line); border-radius:.25rem;
@@ -258,6 +266,7 @@ _TEMPLATE = """<!doctype html>
   <div class="card hi"><b>{ready}</b><span>Ready to apply<br>(70+, salary clear)</span></div>
   <div class="card"><b>{new_count}</b><span>New since last run</span></div>
   <div class="card"><b>{needs_check}</b><span>Salary not stated<br>— check first</span></div>
+  <div class="card hi"><b>{prepared}</b><span>Drafted by the agent<br>— review and send</span></div>
   <div class="card"><b>{applied}</b><span>Applied / interviewing</span></div>
   <div class="card"><b>{total}</b><span>Total tracked</span></div>
 </div>
@@ -316,9 +325,11 @@ _TEMPLATE = """<!doctype html>
 <div id="tip" role="tooltip"></div>
 
 <footer>
-  Mark progress from the terminal: <code>python main.py status &lt;id&gt; applied</code> ·
-  draft an application: <code>python main.py apply &lt;id&gt;</code> ·
+  Let the agent triage and draft: <code>python main.py agent</code> ·
+  open a form pre-filled: <code>python main.py apply &lt;id&gt; --assist</code> ·
+  mark it sent: <code>python main.py status &lt;id&gt; applied</code> ·
   refresh: <code>python main.py search &amp;&amp; python main.py dashboard</code>
+  <br><br>The agent never submits an application. It drafts and queues; you send.
 </footer>
 
 <script>
@@ -438,6 +449,12 @@ function render() {{
         ${{j.status === "new" ? '<span class="new">NEW</span>' : ""}}
         <div class="co">${{esc(j.company)}} · ${{esc(j.setup)}} · via ${{esc(j.source)}}</div>
         ${{j.fit ? `<div class="note">${{esc(j.fit)}}</div>` : ""}}
+        ${{j.status === "prepared" && j.draft
+            ? `<div class="note ready">Draft ready: <code>${{esc(j.draft.split("/").pop())}}</code>
+               — <code>python main.py apply ${{esc(j.id.slice(0,8))}} --assist</code></div>`
+            : ""}}
+        ${{j.agentNote && j.status !== "prepared"
+            ? `<div class="note">Agent: ${{esc(j.agentNote)}}</div>` : ""}}
         ${{j.warnings.length ? `<div class="note">⚠ ${{esc(j.warnings[0])}}</div>` : ""}}
         <div class="note">id ${{esc(j.id)}}</div>
       </td>

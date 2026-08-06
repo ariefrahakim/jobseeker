@@ -88,6 +88,7 @@ Reports land in `output/` as Markdown, HTML, JSON and CSV.
 
 It answers the four questions you actually have each morning:
 
+- **Drafted by the agent** — applications written and waiting for you to send
 - **Ready to apply** — scored 70+, not yet acted on, salary already clear
 - **New since last run** — what changed since yesterday
 - **Salary not stated** — Indonesian roles you need to ask about before applying
@@ -193,6 +194,64 @@ scrapers run concurrently and are isolated from each other.
 
 ---
 
+## The apply agent
+
+`python main.py agent` runs the loop end to end:
+
+```
+read stored jobs -> triage with Claude -> shortlist or skip
+                 -> draft tailored CV bullets + a cover letter
+                 -> save the draft, mark the job `prepared`
+```
+
+```bash
+python main.py agent                      # prepare the 5 best, score 75+
+python main.py agent --limit 3 --min-score 80
+python main.py agent --dry-run            # show the decisions, change nothing
+python main.py apply <id> --assist        # open the form, pre-filled
+```
+
+It decides, and can tell you why:
+
+| Decision | When |
+|---|---|
+| `prepared` | Good fit, salary clear, posting substantial enough to tailor against. A draft is written. |
+| `shortlisted` | Needs your eyes — a stretch, a thin posting, or an Indonesian role stating no salary. |
+| `skipped` | Claude read the body and judged it a poor fit despite the score. |
+
+### What it does not do: press Submit
+
+This is the one thing the agent will not automate, and the reason is the failure
+mode rather than squeamishness.
+
+Sending an application is irreversible, goes to a real employer under your real
+name, and cannot be un-sent. This scorer has already been caught ranking a
+*"Working Student"* role at 77 and a candidate's own Hacker News self-advert at
+88. A silent auto-submit would have posted your name to both, and you would
+never have known. A wrong application also costs more than a missed one:
+recruiters and ATS systems flag bulk-generic applicants, so volume damages your
+standing with exactly the companies worth applying to.
+
+So `--assist` is the last mile: Playwright opens the real application form,
+fills the fields it can read from your profile (name, email, phone, LinkedIn,
+portfolio, location), and stops. You review, attach your CV, and press Submit.
+It fills nothing it would have to guess at — a wrong phone number or an invented
+answer to *"why this company"* is worse than an empty field.
+
+**LinkedIn Easy Apply is not automated at any point.** Their User Agreement
+prohibits automated interaction, and the account at risk is your primary
+professional presence. `--assist` on a LinkedIn URL prints the link and your
+draft, and lets you take it from there.
+
+The database enforces this rather than trusting the code path: `record_decision()`
+raises on any attempt to set `applied`, so only you can mark a job sent.
+
+```bash
+python main.py status <id> applied
+```
+
+---
+
 ## Optional: Claude on top
 
 The ranking is deterministic and works with no API key. Claude adds judgement
@@ -224,6 +283,9 @@ python main.py search --sources greenhouse lever
 python main.py search --llm --min-score 65
 python main.py search --format markdown html csv json
 
+python main.py agent                           # triage + draft applications
+python main.py agent --dry-run                 # decisions only, nothing saved
+python main.py apply <id> --assist             # open the form, pre-filled
 python main.py dashboard --open                # build and open the dashboard
 python main.py list --status new               # what is waiting
 python main.py list --region indonesia --min-score 70
@@ -235,8 +297,9 @@ python main.py sources                         # what is on and off
 
 Job ids are shown in the reports and on the dashboard; a prefix is enough.
 
-Statuses: `new`, `seen`, `shortlisted`, `applied`, `interviewing`, `rejected`,
-`skipped`. A status you set by hand survives every later run — the agent stops
+Statuses: `new`, `seen`, `shortlisted`, `prepared`, `applied`, `interviewing`,
+`rejected`, `skipped`. The agent may only set `shortlisted`, `prepared` and
+`skipped` — `applied` is yours alone. A status you set by hand survives every later run — the agent stops
 resurfacing roles you have already decided about.
 
 ---
@@ -265,7 +328,7 @@ scoring:
 ## Tests
 
 ```bash
-python -m pytest -q      # 109 tests
+python -m pytest -q      # 130 tests
 ```
 
 Coverage is concentrated where mistakes are expensive: salary parsing and floor
@@ -284,6 +347,15 @@ Several of these tests exist because they caught real bugs during development:
   'get'`.
 - The HN scraper was pulling the sibling *"Who wants to be hired"* thread, so
   candidates advertising themselves were being ranked as vacancies.
+
+- The agent's `--limit` was taking the *newest* N jobs rather than the *best* N,
+  so a 91-point role could sit unread while five 70-point ones got drafted.
+- `_row_to_result()` dropped `llm_fit` when reading a job back from the
+  database, silently disabling the `poor_fit` and `stretch` guards — the only
+  checks that can override a misleading keyword score.
+- `Anthropic()` constructs fine with no credentials and only fails at request
+  time, so a missing API key produced one identical error per job instead of one
+  clear message before the run started.
 
 The dashboard was also driven through a browser (32 interactive checks), which
 turned up a `TypeError: e.target.matches is not a function` — a keydown with
@@ -318,6 +390,7 @@ src/matcher.py            the six-dimension scorer and hard filters
 src/profile.py            config loading, country and arrangement inference
 src/pipeline.py           orchestration, concurrency, dedupe
 src/storage.py            SQLite: cross-run dedupe, application tracking
+src/agent.py              the apply agent: triage, draft, queue (never submit)
 src/dashboard.py          the single-file HTML dashboard
 src/report.py             terminal, Markdown, JSON, CSV, HTML writers
 src/llm.py                optional Claude enrichment

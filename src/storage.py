@@ -67,8 +67,20 @@ CREATE TABLE IF NOT EXISTS runs (
 """
 
 # Statuses the CLI can set. 'new' and 'seen' are managed automatically.
-VALID_STATUSES = {"new", "seen", "shortlisted", "applied", "interviewing",
-                  "rejected", "skipped"}
+VALID_STATUSES = {"new", "seen", "shortlisted", "prepared", "applied",
+                  "interviewing", "rejected", "skipped"}
+
+# Statuses the agent may set on its own. `applied` is deliberately absent: the
+# agent prepares an application, a human sends it.
+AGENT_STATUSES = {"shortlisted", "prepared", "skipped"}
+
+# Columns added after the first release. SQLite has no "ADD COLUMN IF NOT
+# EXISTS", so each is applied and its duplicate error ignored.
+MIGRATIONS = (
+    "ALTER TABLE jobs ADD COLUMN draft_path TEXT",
+    "ALTER TABLE jobs ADD COLUMN agent_note TEXT",
+    "ALTER TABLE jobs ADD COLUMN decided_at TEXT",
+)
 
 
 class Store:
@@ -77,6 +89,11 @@ class Store:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as conn:
             conn.executescript(SCHEMA)
+            for statement in MIGRATIONS:
+                try:
+                    conn.execute(statement)
+                except sqlite3.OperationalError:
+                    pass  # column already present — this is the expected path
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -213,6 +230,38 @@ class Store:
             cursor = conn.execute(
                 "UPDATE jobs SET status = ?, notes = COALESCE(?, notes) WHERE fingerprint = ?",
                 (status, notes, fingerprint),
+            )
+        return cursor.rowcount > 0
+
+    def record_decision(
+        self,
+        fingerprint: str,
+        status: str,
+        note: str | None = None,
+        draft_path: str | None = None,
+    ) -> bool:
+        """Write an agent decision, with its reasoning and any drafted material.
+
+        Refuses to set `applied`. Sending an application is an irreversible,
+        outward-facing act under the user's real name, so it stays a human
+        decision even when everything up to it was automated.
+        """
+        if status not in AGENT_STATUSES:
+            raise ValueError(
+                f"The agent may not set '{status}'. Allowed: {sorted(AGENT_STATUSES)}"
+            )
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE jobs SET status = ?, agent_note = ?,
+                    draft_path = COALESCE(?, draft_path), decided_at = ?
+                WHERE fingerprint = ?
+                """,
+                (
+                    status, note, draft_path,
+                    datetime.now(timezone.utc).isoformat(),
+                    fingerprint,
+                ),
             )
         return cursor.rowcount > 0
 

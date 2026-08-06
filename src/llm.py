@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from pathlib import Path
 from typing import Any
 
 from .models import MatchResult
@@ -62,16 +63,44 @@ _FIT_SCHEMA = {
 }
 
 
+def _credentials_present() -> bool:
+    """Whether the SDK will find credentials when a request is made.
+
+    Constructing `Anthropic()` proves nothing: it succeeds with no credentials
+    at all and only fails later, at request time, with "Could not resolve
+    authentication method". Callers need to know *before* they start a batch,
+    so they can say "no API key" once instead of once per job.
+
+    An unset ANTHROPIC_API_KEY does not mean there are no credentials — an
+    `ant auth login` profile on disk works too, so both are checked.
+    """
+    if os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN"):
+        return True
+
+    config_dir = Path(
+        os.getenv("ANTHROPIC_CONFIG_DIR")
+        or Path.home() / ".config" / "anthropic"
+    )
+    return (config_dir / "credentials").is_dir() and any(
+        (config_dir / "credentials").glob("*.json")
+    )
+
+
 def _client():
-    """Return an Anthropic client, or None when the SDK/key is unavailable."""
+    """Return an Anthropic client, or None when the SDK/credentials are absent."""
     try:
         import anthropic
     except ImportError:
         log.info("anthropic SDK not installed; skipping LLM enrichment")
         return None
 
-    # A bare constructor also picks up an `ant auth login` profile, so an unset
-    # ANTHROPIC_API_KEY does not by itself mean there are no credentials.
+    if not _credentials_present():
+        log.info(
+            "No Anthropic credentials found (set ANTHROPIC_API_KEY in .env, or run "
+            "`ant auth login`); skipping LLM enrichment"
+        )
+        return None
+
     try:
         return anthropic.Anthropic()
     except Exception as exc:
