@@ -45,3 +45,12 @@ Thumbs.db
 
 # Playwright MCP scratch output
 .playwright-mcp/
+
+# Personal documents — CV, photo, ID. Kept local: this repo is public, and git
+# history preserves anything committed even after it is deleted.
+data/cv/
+*.pdf
+*.jpg
+*.jpeg
+*.png
+!output/*.png
