@@ -5,7 +5,9 @@
     python main.py search --llm               # add Claude fit assessments
     python main.py search --sources greenhouse lever
     python main.py list --status new
+    python main.py agent                      # triage + draft applications for you
     python main.py apply <fingerprint>        # draft CV bullets + cover letter
+    python main.py apply <fingerprint> --assist   # open the form, pre-filled
     python main.py status <fingerprint> applied
     python main.py stats
     python main.py sources
@@ -102,6 +104,14 @@ def cmd_apply(args: argparse.Namespace) -> int:
     """Draft tailored application material for one stored job."""
     import json
 
+    if getattr(args, "assist", False):
+        from src.agent import assisted_apply
+
+        return assisted_apply(
+            Store(args.db), Profile.load(args.profile), args.fingerprint,
+            headless=args.headless,
+        )
+
     from src.models import Arrangement, Job, MatchResult, ScoreBreakdown
 
     store = Store(args.db)
@@ -155,6 +165,63 @@ def cmd_apply(args: argparse.Namespace) -> int:
         encoding="utf-8",
     )
     print(f"Saved to {target}\n")
+    return 0
+
+
+# ---------------------------------------------------------------------- agent
+def cmd_agent(args: argparse.Namespace) -> int:
+    """Triage the queue and prepare applications, stopping before submit."""
+    from src.agent import ApplyAgent
+
+    store = Store(args.db)
+    profile = Profile.load(args.profile)
+    agent = ApplyAgent(store=store, profile=profile)
+
+    report = agent.run(
+        min_score=args.min_score,
+        limit=args.limit,
+        require_salary_clear=not args.allow_unknown_salary,
+        use_llm=not args.no_llm,
+        dry_run=args.dry_run,
+    )
+
+    print()
+    print("=" * 78)
+    print(f"  Apply agent — considered {report.considered} job(s)"
+          + ("  [DRY RUN — nothing was saved]" if args.dry_run else ""))
+    print("=" * 78)
+
+    if report.prepared:
+        print(f"\n  PREPARED ({len(report.prepared)}) — drafted and ready for your review:\n")
+        for d in report.prepared:
+            print(f"    [{d.score:5.1f}] {d.title} — {d.company}")
+            print(f"             {d.reason}")
+            if d.draft_path:
+                print(f"             draft: {d.draft_path}")
+            print(f"             apply: python main.py apply {d.fingerprint[:8]} --assist")
+            print()
+
+    if report.shortlisted:
+        print(f"  NEEDS YOUR CALL ({len(report.shortlisted)}):\n")
+        for d in report.shortlisted:
+            print(f"    [{d.score:5.1f}] {d.title} — {d.company}")
+            print(f"             {d.reason}\n")
+
+    if report.skipped:
+        print(f"  SKIPPED ({len(report.skipped)}):\n")
+        for d in report.skipped:
+            print(f"    [{d.score:5.1f}] {d.title} — {d.company}")
+            print(f"             {d.reason}\n")
+
+    for err in report.errors:
+        print(f"  ! {err}")
+
+    if not report.decisions:
+        print("\n  Nothing to decide on. Run `search` first, or lower --min-score.\n")
+        return 0
+
+    print("  The agent stops here on purpose: it does not send applications.")
+    print("  Read a draft, then `apply <id> --assist` to open the form pre-filled.\n")
     return 0
 
 
@@ -269,7 +336,26 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_apply = sub.add_parser("apply", help="draft CV bullets and a cover letter")
     p_apply.add_argument("fingerprint", help="job id (a prefix is enough)")
+    p_apply.add_argument("--assist", action="store_true",
+                         help="open the application form in a browser, pre-filled "
+                              "(stops before submit — you press it)")
+    p_apply.add_argument("--headless", action="store_true",
+                         help="with --assist, do not show the browser (fills only)")
     p_apply.set_defaults(func=cmd_apply)
+
+    p_agent = sub.add_parser("agent",
+                             help="triage the queue and draft applications for review")
+    p_agent.add_argument("--min-score", type=float, default=75.0,
+                         help="only consider jobs at or above this score (default 75)")
+    p_agent.add_argument("--limit", type=int, default=5,
+                         help="how many applications to prepare (default 5)")
+    p_agent.add_argument("--allow-unknown-salary", action="store_true",
+                         help="prepare Indonesian roles that state no salary")
+    p_agent.add_argument("--no-llm", action="store_true",
+                         help="decide on scores alone, without Claude's read")
+    p_agent.add_argument("--dry-run", action="store_true",
+                         help="show the decisions without saving or drafting")
+    p_agent.set_defaults(func=cmd_agent)
 
     p_status = sub.add_parser("status", help="update a job's status")
     p_status.add_argument("fingerprint")
